@@ -1,3 +1,10 @@
 __pycache__/*
 env/*
 src/*
+utils/__pycache__/*
+.coverage
+corrects.txt
+.pytest_cache/*
+optimizers/__pycache__/*
+network/__pycache__/*
+.gitignore
