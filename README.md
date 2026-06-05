@@ -1,6 +1,4 @@
-================================================================================
-          Decentralized Optimization in Dynamic Environments
-================================================================================
+# Decentralized Optimization in Dynamic Environments
 
 # OVERVIEW
 This repository contains a comprehensive simulation framework for evaluating 
@@ -23,9 +21,8 @@ bottlenecks, asymmetric network topologies, and asynchronous updates.
 - Production-Ready: Includes a non-intrusive logging system and extensive 
   unit tests (>90% coverage) using `pytest`.
 
-================================================================================
 # ALGORITHMS IMPLEMENTED
-================================================================================
+
 The algorithms are divided into three logical groups:
 
 1. Classical Methods (optimizers/classical.py)
@@ -51,9 +48,9 @@ The algorithms are divided into three logical groups:
    - Consensus SPSA: A zeroth-order (gradient-free) method that estimates 
      gradients using simultaneous random perturbations.
 
-================================================================================
+
 # PROJECT STRUCTURE
-================================================================================
+
 WIND_Benchmark/
 |-- src/                    # Core benchmark components (Environment, Oracle, Metrics)
 |-- network/
@@ -68,17 +65,14 @@ WIND_Benchmark/
 |-- main.py                 # Entry point to run the 1000-iteration benchmark
 `-- README.txt              # This file
 
-================================================================================
 # INSTALLATION & REQUIREMENTS
-================================================================================
+
 Python 3.8+ is required.
 
 Install the required dependencies:
-> pip install numpy pandas tabulate pytest pytest-cov
+> pip install requirements.txt
 
-================================================================================
 # USAGE GUIDE
-================================================================================
 
 1. RUNNING THE BENCHMARK
 To execute the main simulation (T=1000 iterations, dim=10) and generate the 
@@ -98,9 +92,9 @@ To verify the mathematical integrity of all 11 algorithms and ensure that no
 network matrices are broken, run the test suite with coverage:
 > pytest test_optimizers.py -v --cov=optimizers
 
-================================================================================
+
 # UNDERSTANDING THE METRICS TABLE
-================================================================================
+
 When you run `main.py`, a table is generated. Here is how to interpret it:
 
 - error_l2: The average distance from the network's center of mass to the moving 
