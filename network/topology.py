@@ -40,11 +40,16 @@ class TopologyManager:
                 W[i, i] = 0.5
             return W
 
+        elif mode == "directed_ring":
+            W = np.zeros((n, n))
+            for i in range(n):
+                W[i, i] = 0.5
+                W[(i + 1) % n, i] = 0.5
+            return W
+
         elif mode == "grid":
-            # Grid (square): for n=4, 9, 16...
             side = int(np.sqrt(n))
             if side * side != n:
-                # If not a perfect square, fall back to a line (linear topology)
                 return TopologyManager.generate_matrix(n, "ring")
 
             W = np.eye(n)
@@ -85,8 +90,6 @@ class TopologyManager:
 
         if mode == "directed_ring" or mode == "ring":
             # Directed ring: information flows only clockwise
-            # Node i "pulls" weights from i-1
-            # Node i "pushes" gradient to i+1
             for i in range(n):
                 # R: row i sums to 1
                 R[i, i] = 0.5
@@ -97,12 +100,10 @@ class TopologyManager:
                 C[(i + 1) % n, i] = 0.5
 
         elif mode == "all-to-all":
-            # For bidirectional complete graphs, R and C can be the same
             R = np.full((n, n), 1.0 / n)
             C = np.full((n, n), 1.0 / n)
 
         elif mode == "undirected_ring":
-            # By default, return a regular doubly stochastic matrix
             W = TopologyManager.generate_matrix(n, "ring")
             R, C = W.copy(), W.copy()
 

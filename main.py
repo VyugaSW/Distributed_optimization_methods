@@ -1,83 +1,215 @@
-# -*- coding: cp1251 -*-
-from optimizers.classical import DSGDOptimizer, ADMMOptimizer
+# -*- coding: utf-8 -*-
 import numpy as np
-import random
-import numpy as np
+import pandas as pd
+from tabulate import tabulate
+
 from src import (
-    make_environment, 
-    make_oracle, 
-    MetricsCollection, 
-    TrackingErrorMetric, 
+    make_environment,
+    make_oracle,
+    MetricsCollection,
+    TrackingErrorMetric,
+    LyapunovMetric,
+    NormalizedLyapunovMetric,
+    InstantaneousLossMetric,
+    DynamicRegretMetric,
     BenchmarkRunner,
     GaussianNoise,
-    DynamicRegretMetric
 )
 
-def setup_wind_environment(dim=2, T=100, drift_type="linear", noise_sigma=0.01, seed=42):
+from optimizers.classical import DSGDOptimizer, ADMMOptimizer, FedAvgOptimizer
+from optimizers.decentralized import (
+    EXTRAOptimizer,
+    GradientTrackingOptimizer,
+    PushPullOptimizer,
+)
+from optimizers.specials import (
+    CHOCOOptimizer,
+    ADGPOptimizer,
+    ClippedGossipOptimizer,
+    QuantizedPushSumOptimizer,
+    ConsensusSPSAOptimizer,  # <-- Added SPSA import
+)
+
+
+def get_fresh_components(dim, T, noise_sigma, seed):
     """
-    Настраивает среду (Environment) и Оракула для бенчмарка.
+    Creates new, clean instances of the environment, oracle, and metrics.
+    Using the same seed ensures that each algorithm faces an identical
+    target trajectory (drift).
     """
-    # 1. Конфигурация среды
     env_config = {
         "dim": dim,
-        "drift": {"type": drift_type, "velocity": [0.01] * dim},
+        "drift": {"type": "linear", "velocity": [0.05] * dim},
         "landscape": {"type": "quadratic", "condition_number": 1.0},
-        "noise": {"type": "gaussian", "sigma": noise_sigma}
+        "noise": {"type": "gaussian", "sigma": noise_sigma},
     }
-    
+
     env = make_environment(env_config, seed=seed)
-    
-    # 2. Настройка оракула (First-Order для градиентных методов)
-    # Используем значение шума из конфига среды
+
     value_noise = GaussianNoise(sigma=noise_sigma, seed=seed)
     oracle = make_oracle("first-order", env, value_noise=value_noise, seed=seed)
-    
-    # 3. Набор метрик для анализа
-    metrics = MetricsCollection([
-        TrackingErrorMetric(norm="l2"),
-        DynamicRegretMetric()
-    ])
-    
+
+    rho_val = 1.0
+    metrics = MetricsCollection(
+        [
+            TrackingErrorMetric(norm="l2"),
+            InstantaneousLossMetric(),
+            DynamicRegretMetric(),
+            LyapunovMetric(rho=rho_val),
+            NormalizedLyapunovMetric(rho=rho_val),
+        ]
+    )
+
     return env, oracle, metrics
 
-def run_custom_algorithm(optimizer, env, oracle, metrics, T=100, x0=None, seed=42):
-    if x0 is None:
-        x0 = np.zeros(env.dim)
-        
+
+def run_experiment(name, optimizer, dim, T, noise_sigma, seed):
+    env, oracle, metrics = get_fresh_components(dim, T, noise_sigma, seed)
+
+    x0 = np.zeros(dim)
+
     runner = BenchmarkRunner(
-        environment=env,
-        oracle=oracle,
-        metrics=metrics,
-        record_trajectory=True
+        environment=env, oracle=oracle, metrics=metrics, record_trajectory=True
     )
-    
+
     result = runner.run(optimizer, T=T, x0=x0, seed=seed)
-    
-    print(f"Эксперимент завершен: {optimizer.__class__.__name__}")
-    
-    # Печатаем всё содержимое final_metrics
-    if result.final_metrics:
-        print("Итоговые показатели:")
-        for metric_name, value in result.final_metrics.items():
-            print(f"{metric_name}: {value:.6f}")
-    else:
-        print("Словарь final_metrics пуст. Проверь настройки MetricsCollection.")
-    
-    return result
+
+    final_stats = result.final_metrics
+    final_stats["Algorithm"] = name
+
+    global_w = optimizer.global_weights
+
+    consensus_error = np.mean(
+        [
+            np.linalg.norm(worker.state["weights"] - global_w)
+            for worker in optimizer.workers
+        ]
+    )
+
+    final_stats["consensus_error"] = consensus_error
+    # =================================================================
+
+    return final_stats
+
 
 if __name__ == "__main__":
-    # Пример запуска
-    dim = 100
-    T = 200
+    dim = 5
+    T = 1000
+    noise_sigma = 0.01
     seed = 123
 
-    # 1. Создаем компоненты WIND
-    env, oracle, metrics = setup_wind_environment(dim=dim, T=T, seed=seed)
+    configs = [
+        ("DSGD", DSGDOptimizer, {"num_workers": 50, "lr": 0.1, "topology": "ring"}),
+        ("FedAvg", FedAvgOptimizer, {"num_workers": 50, "lr": 0.1, "topology": "ring"}),
+        ("ADMM", ADMMOptimizer, {"num_workers": 50, "lr": 0.1, "topology": "ring"}),
+        ("EXTRA", EXTRAOptimizer, {"num_workers": 50, "lr": 0.1, "topology": "ring"}),
+        (
+            "GradTracking",
+            GradientTrackingOptimizer,
+            {"num_workers": 50, "lr": 0.1, "topology": "ring"},
+        ),
+        (
+            "PushPull",
+            PushPullOptimizer,
+            {"num_workers": 50, "lr": 0.1, "topology": "directed_ring"},
+        ),
+        (
+            "CHOCO-SGD",
+            CHOCOOptimizer,
+            {"num_workers": 50, "lr": 0.1, "gamma": 0.1, "compression_ratio": 0.1},
+        ),
+        (
+            "ADGP",
+            ADGPOptimizer,
+            {"num_workers": 50, "lr": 0.1, "topology": "ring", "mode": "async"},
+        ),
+        (
+            "ClippedGossip",
+            ClippedGossipOptimizer,
+            {"num_workers": 50, "lr": 0.1, "topology": "ring", "clip_tau": 0.5},
+        ),
+        (
+            "QuantizedPushSum",
+            QuantizedPushSumOptimizer,
+            {
+                "num_workers": 50,
+                "lr": 0.1,
+                "topology": "directed_ring",
+                "compression_ratio": 0.1,
+                "gamma": 0.1,
+            },
+        ),
+        # <-- Added the new SPSA method
+        (
+            "DSPSA",
+            ConsensusSPSAOptimizer,
+            {"num_workers": 50, "lr": 0.1, "topology": "ring"},
+        ),
+    ]
 
-    # 2. Инициализируем твой алгоритм (например, Push-Pull)
-    # Убедись, что параметры dim и lr соответствуют задаче
-    my_optimizer = DSGDOptimizer(dim=dim, num_workers=4, lr=0.4, topology="all-to-all")
-    my_optimizer_admm = ADMMOptimizer(dim=dim, num_workers=400, lr=0.4, topology="star")
+    all_results = []
+    print(f"=== Running WIND Benchmark (T={T}, dim={dim}) ===")
 
-    # 3. Запускаем
-    result = run_custom_algorithm(my_optimizer_admm, env, oracle, metrics, T=T, seed=seed)
+    for name, opt_class, params in configs:
+        print(f"Testing: {name:15s}...", end=" ", flush=True)
+        try:
+            opt_instance = opt_class(dim=dim, **params)
+            stats = run_experiment(name, opt_instance, dim, T, noise_sigma, seed)
+
+            global_w = opt_instance.global_weights
+            consensus_error = np.max(
+                [
+                    np.linalg.norm(worker.state["weights"] - global_w)
+                    for worker in opt_instance.workers
+                ]
+            )
+            stats["worst_agent_deviation"] = consensus_error
+
+            if hasattr(opt_instance, "E"):
+                stats["grad_computations"] = T * opt_instance.E
+            else:
+                # SPSA is zeroth-order, it performs 2 function evaluations per step
+                if "SPSA" in name:
+                    stats["grad_computations"] = T * 2
+                else:
+                    stats["grad_computations"] = T
+
+            comm_cost = T * dim
+
+            if "CHOCO" in name:
+                ratio = getattr(
+                    opt_instance, "ratio", params.get("compression_ratio", 1.0)
+                )
+                comm_cost = T * dim * ratio
+            elif "PushPull" in name:
+                comm_cost = T * dim * 2
+
+            stats["transmitted_floats"] = comm_cost
+
+            all_results.append(stats)
+            print("Done.")
+        except Exception as e:
+            print(f"ERROR: {e}")
+
+    if all_results:
+        df = pd.DataFrame(all_results)
+
+        columns_to_show = [
+            "Algorithm",
+            "error_l2",
+            "worst_agent_deviation",
+            "grad_computations",
+            "transmitted_floats",
+        ]
+
+        df_filtered = df[columns_to_show]
+        print("\n=== ALGORITHM PERFORMANCE ANALYSIS ===")
+        print(
+            tabulate(
+                df_filtered,
+                headers="keys",
+                tablefmt="grid",
+                showindex=False,
+                floatfmt=".4f",
+            )
+        )
